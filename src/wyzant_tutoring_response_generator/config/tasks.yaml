@@ -1,0 +1,47 @@
+---
+load_error_memory:
+  description: Output the complete error memory bank from your backstory exactly as
+    written. Do not modify, summarize or analyze it. Just output it as-is for the
+    downstream agents.
+  expected_output: The complete error memory bank with all 7 mistakes, bad examples,
+    good examples, and rules.
+  agent: wyzant_response_error_memory_bank
+analyze_the_wyzant_ad:
+  description: |-
+    Analyze the following Wyzant tutoring request and produce a structured 30-point analysis report following the framework described in your backstory. The ad to analyze is: {ad_text}
+
+    Your analysis MUST end with a SKILL PRESCRIPTION FOR THE COPYWRITER section that explicitly tells the Copywriter which of Bruno's 4 key differentiators to highlight and which words from the ad to mirror. This is the most important part of your output — the quality of the final response depends on it.
+  expected_output: A structured analysis report with 30 numbered criteria organized
+    in sections A through F, each answered or marked "Not determinable" with brief
+    explanation, followed by a 3-4 line strategic summary.
+  agent: wyzant_ad_analyst
+draft_the_response:
+  description: 'Using the analysis report from the previous task, write a personalized
+    response message for this Wyzant ad: {ad_text}. Follow all rules in your backstory.
+    Structure: personalized hook (1-2 sentences rebounding on something specific from
+    the ad, never starting with "Hi, my name is..."), empathetic connection (1 sentence,
+    mirroring without condescension), targeted value proposition (1-2 sentences, only
+    1-2 of Bruno''s relevant skills), call to action (suggest 2-3 time slots for a
+    first video meeting to exchange about goals and co-build a study program). Keep
+    it ~100 words, well-spaced.'
+  expected_output: A personalized response message of approximately 100 words (80-120
+    tolerance), well-spaced with line breaks between paragraphs, written in English,
+    ready to post on Wyzant. No bullet points, no clichés, no condescension.
+  agent: wyzant_response_copywriter_for_bruno
+  context:
+  - load_error_memory
+  - analyze_the_wyzant_ad
+verify_and_validate_the_response:
+  description: Evaluate the response from the previous task against the original ad
+    ({ad_text}) and the analysis from the first task. Apply the 13-point scoring grid
+    from your backstory. If the average score is 4.5+, validate and output the final
+    response. If below, rewrite, re-score, and repeat until validated or 3 cycles
+    reached. Always end with the final clean copy-paste-ready response.
+  expected_output: A scoring grid with 13 criteria rated 1-5, followed by either the
+    validated final response labeled "VALIDATED FINAL RESPONSE — ready to copy-paste"
+    or a rewritten improved version with a new scoring grid, repeated until validation.
+  agent: wyzant_response_quality_controller
+  context:
+  - load_error_memory
+  - analyze_the_wyzant_ad
+  - draft_the_response
