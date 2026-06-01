@@ -15,62 +15,57 @@ def extract_task_content(result, task_index):
             return task.raw
     return None
 
-def extract_final_message_from_validation(content):
-    """Extrait le message final depuis la validation"""
-    if not content:
-        return None
-    
-    # Cherche le message après "VALIDATED FINAL RESPONSE"
-    match = re.search(r'VALIDATED FINAL RESPONSE[^\n]*\n\n(.*?)(?=\n\n\*\*|\n\[|\n\n[A-Z ]+\:|\Z)', content, re.DOTALL)
-    if match:
-        text = match.group(1).replace('\\n', '\n').strip()
-        # Nettoie les caractères parasites
-        text = re.sub(r'\\n', '\n', text)
-        text = re.sub(r'\\"', '"', text)
+def remove_final_message(text):
+    """Supprime le bloc 'VALIDATED FINAL RESPONSE' d'un texte"""
+    if not text:
         return text
-    
+    # Supprime tout ce qui est après "VALIDATED FINAL RESPONSE"
+    cleaned = re.sub(r'VALIDATED FINAL RESPONSE.*?$', '', text, flags=re.DOTALL | re.IGNORECASE)
+    return cleaned.strip()
+
+def extract_final_message(text):
+    """Extrait uniquement le message final"""
+    if not text:
+        return None
+    match = re.search(r'VALIDATED FINAL RESPONSE[^\n]*\n\n(.*?)(?=\n\n\*\*|\n\[|\Z)', text, re.DOTALL | re.IGNORECASE)
+    if match:
+        msg = match.group(1).replace('\\n', '\n').strip()
+        return msg
     return None
 
-def extract_validation_only(content):
-    """Extrait la validation SANS le message final"""
-    if not content:
+def clean_analysis_text(text):
+    """Nettoie l'analyse en enlevant les caractères parasites"""
+    if not text:
         return None
-    
-    # Garde seulement ce qui est avant "VALIDATED FINAL RESPONSE"
-    parts = re.split(r'VALIDATED FINAL RESPONSE', content, flags=re.IGNORECASE)
-    if len(parts) > 1:
-        return parts[0].strip()
-    return content.strip()
+    # Enlève le message final
+    text = remove_final_message(text)
+    # Nettoie les retours à la ligne
+    text = text.replace('\\n', '\n')
+    # Enlève les lignes trop longues ou parasites
+    lines = []
+    for line in text.split('\n'):
+        line = line.strip()
+        if line and not line.startswith('```') and not line.startswith('{') and len(line) < 200:
+            lines.append(line)
+    return '\n'.join(lines[:100])  # Limite à 100 lignes
 
-def display_analysis(raw_content):
-    """Affiche l'analyse"""
-    if not raw_content:
-        st.info("Analyse non disponible")
-        return
-    
-    sections = {
-        "📌 Profil": r'(?:A\)|1\.)\s*Requester Profile(.*?)(?=(?:B\)|2\.)\s*Level|$)',
-        "📌 Niveau": r'(?:B\)|2\.)\s*Level & Experience(.*?)(?=(?:C\)|3\.)\s*Objective|$)',
-        "📌 Objectif": r'(?:C\)|3\.)\s*Objective & Motivation(.*?)(?=(?:D\)|4\.)\s*Expectations|$)',
-        "📌 Attentes": r'(?:D\)|4\.)\s*Expectations & Constraints(.*?)(?=(?:E\)|5\.)\s*Tone|$)',
-        "📌 Psychologie": r'(?:E\)|5\.)\s*Tone & Psychology(.*?)(?=(?:F\)|6\.)\s*Opportunities|$)',
-    }
-    
-    found = False
-    for title, pattern in sections.items():
-        match = re.search(pattern, raw_content, re.DOTALL | re.IGNORECASE)
-        if match:
-            found = True
-            content = match.group(1).strip().replace('\\n', '\n')
-            with st.expander(title):
-                # Montre les premières lignes
-                lines = [l.strip() for l in content.split('\n') if l.strip() and not l.startswith('```')]
-                for line in lines[:20]:
-                    st.text(line[:100])
-    
-    if not found:
-        with st.expander("📄 Analyse complète"):
-            st.text(raw_content[:1500])
+def clean_draft_text(text):
+    """Nettoie le brouillon"""
+    if not text:
+        return None
+    # Enlève le message final si présent
+    text = remove_final_message(text)
+    text = text.replace('\\n', '\n')
+    return text[:1500]
+
+def clean_validation_text(text):
+    """Nettoie la validation en gardant le score et la grille, sans le message"""
+    if not text:
+        return None
+    # Enlève le message final
+    text = remove_final_message(text)
+    text = text.replace('\\n', '\n')
+    return text[:1500]
 
 ad_text = st.text_area(
     "📝 Texte de l'annonce",
@@ -87,38 +82,41 @@ if st.button("🚀 Générer la réponse", type="primary"):
                 inputs = {'ad_text': ad_text}
                 result = WyzantTutoringResponseGeneratorCrew().crew().kickoff(inputs=inputs)
                 
-                # Extraire les contenus des 4 tâches
-                task_analysis = extract_task_content(result, 0)   # Analyse (Task 0)
-                task_draft = extract_task_content(result, 1)      # Rédaction (Task 1)
-                task_validation = extract_task_content(result, 2) # Validation (Task 2)
+                # Extraire les contenus bruts
+                raw_analysis = extract_task_content(result, 0)
+                raw_draft = extract_task_content(result, 1)
+                raw_validation = extract_task_content(result, 2)
                 
-                # Le message final est dans la validation (Task 2)
-                final_message = extract_final_message_from_validation(task_validation) if task_validation else None
+                # Nettoyer chaque contenu
+                clean_analysis = clean_analysis_text(raw_analysis)
+                clean_draft = clean_draft_text(raw_draft)
+                clean_validation = clean_validation_text(raw_validation)
                 
-                # La validation sans le message
-                validation_only = extract_validation_only(task_validation) if task_validation else None
+                # Extraire le message final (depuis la validation)
+                final_message = extract_final_message(raw_validation)
                 
                 st.success("✅ Réponse générée !")
                 
                 tab1, tab2, tab3, tab4 = st.tabs(["📊 Analyse", "✍️ Rédaction (brouillon)", "✅ Validation & Score", "💬 Réponse finale"])
                 
                 with tab1:
-                    if task_analysis:
-                        display_analysis(task_analysis)
+                    if clean_analysis:
+                        st.markdown("### Analyse de la demande")
+                        st.text(clean_analysis)
                     else:
-                        st.info("Analyse non trouvée")
+                        st.info("Analyse non disponible")
                 
                 with tab2:
-                    if task_draft:
+                    if clean_draft:
                         st.markdown("### Version initiale (brouillon)")
-                        st.text(task_draft.replace('\\n', '\n')[:800])
+                        st.text(clean_draft)
                     else:
-                        st.info("Brouillon non trouvé")
+                        st.info("Brouillon non disponible")
                 
                 with tab3:
-                    if validation_only:
-                        # Afficher le score
-                        score_match = re.search(r'AVERAGE SCORE: ([\d\.]+)/5', validation_only)
+                    if clean_validation:
+                        # Chercher le score
+                        score_match = re.search(r'AVERAGE SCORE:\s*([\d\.]+)/5', clean_validation, re.IGNORECASE)
                         if score_match:
                             score = float(score_match.group(1))
                             if score >= 4.5:
@@ -126,28 +124,19 @@ if st.button("🚀 Générer la réponse", type="primary"):
                             else:
                                 st.warning(f"⚠️ **Score : {score}/5**")
                         
-                        # Afficher la grille de notation
-                        with st.expander("📋 Grille d'évaluation détaillée"):
-                            # Nettoie le texte
-                            clean_text = validation_only.replace('\\n', '\n')
-                            st.text(clean_text[:1200])
+                        with st.expander("📋 Grille d'évaluation"):
+                            st.text(clean_validation[:1000])
                     else:
-                        st.info("Validation non trouvée")
+                        st.info("Validation non disponible")
                 
                 with tab4:
                     if final_message:
-                        st.markdown("### 🎯 Message prêt à copier-coller")
+                        st.markdown("### 🎯 Message à copier-coller")
                         st.markdown(f'<div style="background-color:#f0f2f6; padding:20px; border-radius:10px; border-left:5px solid #ff4b4b;">{final_message}</div>', unsafe_allow_html=True)
-                        
-                        # Bouton de copie
                         with st.expander("📋 Cliquez pour copier"):
-                            st.code(final_message, language="markdown")
-                    elif task_validation:
-                        # Fallback: montrer la validation entière
-                        st.warning("Message final non extrait automatiquement. Voici le contenu brut :")
-                        st.text(task_validation[:1000])
+                            st.code(final_message, language="text")
                     else:
-                        st.error("Aucun message trouvé")
+                        st.error("Message final non trouvé")
                 
                 st.balloons()
                 
